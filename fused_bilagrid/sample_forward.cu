@@ -1,6 +1,6 @@
-__global__ void grid_sample_forward_kernel(
-    const float* __restrict__ input, // [N,12,L,H,W]
-    const float* __restrict__ grid,  // [N,m,h,w,3]
+__global__ void bilagrid_sample_forward_kernel(
+    const float* __restrict__ bilagrid, // [N,12,L,H,W]
+    const float* __restrict__ coords,  // [N,m,h,w,3]
     const float* __restrict__ rgb,  // [N,m,h,w,3]
     float* __restrict__ output,  // [N,m,h,w,3]
     int N, int L, int H, int W,
@@ -18,12 +18,12 @@ __global__ void grid_sample_forward_kernel(
 
     // read coords
     int g_offset = (((ni * m + mi) * h + hi) * w + wi) * 3;
-    float gx = grid[g_offset+0];
-    float gy = grid[g_offset+1];
-    float gz = grid[g_offset+2];
-    float x = ((gx + 1.f) * 0.5f) * (W - 1);
-    float y = ((gy + 1.f) * 0.5f) * (H - 1);
-    float z = ((gz + 1.f) * 0.5f) * (L - 1);
+    float gx = coords[g_offset+0];
+    float gy = coords[g_offset+1];
+    float gz = coords[g_offset+2];
+    float x = gx * (W - 1);
+    float y = gy * (H - 1);
+    float z = gz * (L - 1);
 
     // find corner indices
     int x0 = (int)floorf(x);
@@ -44,7 +44,7 @@ __global__ void grid_sample_forward_kernel(
     float fy = y - (float)y0;
     float fz = z - (float)z0;
 
-    // input and output colors
+    // bilagrid and output colors
     float sr = rgb[g_offset+0];
     float sg = rgb[g_offset+1];
     float sb = rgb[g_offset+2];
@@ -54,7 +54,7 @@ __global__ void grid_sample_forward_kernel(
     #pragma unroll
     for (int ci = 0; ci < 12; ci++) {
         // base pointer for this volume
-        const float* vol = &input[((ni*12 + ci)*L*H*W)];
+        const float* vol = &bilagrid[((ni*12 + ci)*L*H*W)];
 
         // fetch 8 corners
         auto v000 = vol[(z0*H+y0)*W+x0];
@@ -88,9 +88,9 @@ __global__ void grid_sample_forward_kernel(
 }
 
 
-void grid_sample_forward(
-    const float* input,
-    const float* grid,
+void bilagrid_sample_forward(
+    const float* bilagrid,
+    const float* coords,
     const float* rgb,
     float* output,
     int N, int L, int H, int W,
@@ -99,8 +99,8 @@ void grid_sample_forward(
     int total = N * m * h * w;
     int threads = 256;
     int blocks = (total + threads - 1) / threads;
-    grid_sample_forward_kernel<<<blocks, threads>>>(
-        input, grid, rgb, output,
+    bilagrid_sample_forward_kernel<<<blocks, threads>>>(
+        bilagrid, coords, rgb, output,
         N, L, H, W, m, h, w
     );
     // cudaDeviceSynchronize();

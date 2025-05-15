@@ -22,7 +22,7 @@ fallback_archs = [
 
 nvcc_args = [
     "-O3",
-    "--maxrregcount=32",
+    #"--maxrregcount=32",
     "--use_fast_math",
 ]
 
@@ -68,8 +68,8 @@ setup(
         CUDAExtension(
             name="fused_bilagrid_cuda",
             sources=[
-                "fused_bilagrid/grid_sample_forward.cu",
-                "fused_bilagrid/grid_sample_backward.cu",
+                "fused_bilagrid/sample_forward.cu",
+                "fused_bilagrid/sample_backward.cu",
                 "fused_bilagrid/ext.cpp"
             ],
             extra_compile_args={
