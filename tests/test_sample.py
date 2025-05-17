@@ -91,6 +91,10 @@ def test_bilagrid_sample():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
 def test_bilagrid_uniform_sample():
 
+    N, m = 1, 1
+    L, H, W = 4, 8, 8
+    h, w = 45, 59
+
     N, m = 3, 2
     L, H, W = 5, 7, 15
     h, w = 234, 567
@@ -132,7 +136,7 @@ def profile_bilagrid_sample():
 
     torch.random.manual_seed(42)
 
-    print("# Profiling sample")
+    print("# Profile sample")
     print()
 
     bilagrid = torch.randn((N, 12, L, H, W)).cuda()
@@ -169,7 +173,7 @@ def profile_uniform_bilagrid_sample():
 
     torch.random.manual_seed(42)
 
-    print("# Profiling uniform sample")
+    print("# Profile uniform sample")
     print()
 
     bilagrid = torch.randn((N, 12, L, H, W)).cuda()

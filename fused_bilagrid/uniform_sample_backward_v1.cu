@@ -1,5 +1,10 @@
 #include "config.h"
 
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
+
+namespace cg = cooperative_groups;
+
 
 __global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
     const float* __restrict__ bilagrid,  // [N,12,L,H,W]
@@ -8,18 +13,17 @@ __global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
     float* __restrict__ v_bilagrid,  // [N,12,L,H,W]
     int N, int L, int H, int W,
     int m, int h, int w,
-    int num_div
+    int mult_x, int mult_y
 ) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = N * 12 * L * H * W * num_div;
-    if (idx >= total) return;
-
-    // decode indices
-    int div_i = idx % num_div; idx /= num_div;
-    int xi = idx % W; idx /= W;
-    int yi = idx % H; idx /= H;
-    int zi = idx % L; idx /= L;
+    int x_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int y_idx = blockIdx.y * blockDim.y + threadIdx.y;
+    int idx = blockIdx.z * blockDim.z + threadIdx.z;
+    bool inside = (x_idx < W*mult_x && y_idx < H*mult_y && idx < (N*12*L));
+    if (!inside && mult_x*mult_y == 1) return;
+    int xi = x_idx / mult_x, xf = x_idx % mult_x;
+    int yi = y_idx / mult_y, yf = y_idx % mult_y;
     int ci = idx % 12; idx /= 12;
+    int zi = idx % L; idx /= L;
     int ni = idx;
 
     // Channel‐split: si in {0..3}, di in {0..2}
@@ -30,20 +34,26 @@ __global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
 
     // Loop bounds
     float sw = float(w-1)/float(W-1);
-    int wi0 = max((int)ceil((xi-1)*sw), 0);
-    int wi1 = min((int)floor((xi+1)*sw), w-1) + 1;
+    int block_wi0 = max((int)ceil((xi-1)*sw), 0);  // same for all threads in the block
+    int block_wi1 = min((int)floor((xi+1)*sw), w-1) + 1;
     float sh = float(h-1)/float(H-1);
-    int hi0 = max((int)ceil((yi-1)*sh), 0);
-    int hi1 = min((int)floor((yi+1)*sh), h-1) + 1;
-    int num_px = (hi1-hi0) * (wi1-wi0);
-    int pi0 = (num_px * div_i) / num_div;
-    int pi1 = (num_px * (div_i+1)) / num_div;
+    int block_hi0 = max((int)ceil((yi-1)*sh), 0);
+    int block_hi1 = min((int)floor((yi+1)*sh), h-1) + 1;
+    int x_step = (block_wi1-block_wi0+mult_x-1)/mult_x;
+    int y_step = (block_hi1-block_hi0+mult_y-1)/mult_y;
+
+    int wi0 = block_wi0+xf*x_step;
+    int hi0 = block_hi0+yf*y_step;
+    // int wi1 = min(block_wi0+(xf+1)*x_step, w);
+    // int hi1 = min(block_hi0+(yf+1)*y_step, h);
+    int wi1 = min(block_wi0+(xf+1)*x_step, block_wi1);
+    int hi1 = min(block_hi0+(yf+1)*y_step, block_hi1);
 
     // Loop over all samples for this batch
+    if (inside)
     for (int mi = 0; mi < m; ++mi) {
-        for (int pi = pi0; pi < pi1; pi++) {
-            int hi = hi0 + pi / (wi1-wi0);
-            int wi = wi0 + pi % (wi1-wi0);
+        for (int wi = wi0; wi < wi1; wi++)
+        for (int hi = hi0; hi < hi1; hi++) {
 
             // get color
             int g_off = (((ni*m + mi)*h + hi)*w + wi)*3;
@@ -98,10 +108,28 @@ __global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
     }
 
     // Write result
-    if (num_div == 1)
-        v_bilagrid[((ni*12 + ci)*L + zi)*H*W + yi*W + xi] = accum;
-    else
-        atomicAdd(v_bilagrid + ((ni*12 + ci)*L + zi)*H*W + yi*W + xi, accum);
+
+    __shared__ float accum_array[12];
+
+    int out_idx = ((ni*12 + ci)*L + zi)*H*W + yi*W + xi;
+    if (mult_x*mult_y == 1) {
+        v_bilagrid[out_idx] = accum;
+    }
+    else if (mult_x % blockDim.x == 0 && mult_y % blockDim.y == 0) {
+        if (threadIdx.x == 0 && threadIdx.y == 0)
+            accum_array[threadIdx.z] = 0.0f;
+        __syncthreads();
+
+        if (accum != 0.0f)
+            atomicAdd(accum_array + ci, accum);
+        __syncthreads();
+
+        if (threadIdx.x == 0 && threadIdx.y == 0)
+            atomicAdd(v_bilagrid + out_idx, accum_array[ci]);
+    }
+    else {
+        atomicAdd(v_bilagrid + out_idx, accum);
+    }
 }
 
 
@@ -208,6 +236,7 @@ __global__ void bilagrid_uniform_sample_backward_kernel_rgb(
 }
 
 
+
 void bilagrid_uniform_sample_backward(
     const float* bilagrid,
     const float* rgb,
@@ -219,13 +248,29 @@ void bilagrid_uniform_sample_backward(
 ) {
     // v_bilagrid
     {
-        int num_div = 1;
-        int total = N * 12 * L * H * W * num_div;
-        int threads = 64;
-        int blocks = (total + threads - 1) / threads;
-        bilagrid_uniform_sample_backward_kernel_bilagrid<<<blocks, threads>>>(
+        dim3 block = { 4, 4, 12 };
+        const int target_tile_size = 5;  // 4 and 6 are both slower for (8,16,16) bilagrid
+    
+        // int mult_x = max((2*w+W)/(W*target_tile_size), 1);
+        // int mult_y = max((2*h+H)/(H*target_tile_size), 1);
+        int mult_x = (2*w+W)/(block.x*W*target_tile_size);
+        int mult_y = (2*h+H)/(block.y*H*target_tile_size);
+        if (mult_x * mult_y < 4)
+            mult_x = mult_y = 1;
+        else {
+            mult_x = max(mult_x, 1) * block.x;
+            mult_y = max(mult_y, 1) * block.y;
+        }
+        // printf("mult_x: %d, mult_y: %d\n", mult_x, mult_y);
+
+        dim3 bounds = {
+            (W*mult_x +block.x-1)/block.x,
+            (H*mult_y +block.y-1)/block.y,
+            (N*12*L +block.z-1)/block.z
+        };
+        bilagrid_uniform_sample_backward_kernel_bilagrid<<<bounds, block>>>(
             bilagrid, rgb, v_output, v_bilagrid,
-            N, L, H, W, m, h, w, num_div
+            N, L, H, W, m, h, w, mult_x, mult_y
         );
     }
 

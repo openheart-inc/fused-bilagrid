@@ -81,7 +81,7 @@ bilagrid_sample_backward_tensor(
 
     auto opts = rgb.options();
     auto v_bilagrid = torch::zeros({N,12,L,H,W}, opts);
-    auto v_rgb = torch::zeros({N,m,h,w,3}, opts);
+    auto v_rgb = torch::empty({N,m,h,w,3}, opts);
 
     if (compute_coords_grad) {
         auto v_coords = torch::zeros({N,m,h,w,2}, opts);
@@ -148,7 +148,7 @@ bilagrid_uniform_sample_backward_tensor(
 
     auto opts = rgb.options();
     auto v_bilagrid = torch::zeros({N,12,L,H,W}, opts);
-    auto v_rgb = torch::zeros({N,m,h,w,3}, opts);
+    auto v_rgb = torch::empty({N,m,h,w,3}, opts);
 
     bilagrid_uniform_sample_backward(
         bilagrid.data_ptr<float>(),

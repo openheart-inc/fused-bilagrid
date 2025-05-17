@@ -70,9 +70,9 @@ setup(
             sources=[
                 "fused_bilagrid/sample_forward.cu",
                 "fused_bilagrid/sample_backward.cu",
-                # "fused_bilagrid/sample_backward_kernel.cu",
                 "fused_bilagrid/uniform_sample_forward.cu",
-                "fused_bilagrid/uniform_sample_backward.cu",
+                # "fused_bilagrid/uniform_sample_backward_v1.cu",
+                "fused_bilagrid/uniform_sample_backward_v2.cu",
                 "fused_bilagrid/ext.cpp"
             ],
             extra_compile_args={

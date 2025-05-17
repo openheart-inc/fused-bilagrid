@@ -19,16 +19,22 @@ __global__ void bilagrid_sample_backward_kernel(
     int N, int L, int H, int W,
     int m, int h, int w
 ) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = N * m * h * w;
-    if (idx >= total) return;
+    #if 0
+    // faster when coords are random
+    int wi = blockIdx.x * blockDim.x + threadIdx.x;
+    int hi = blockIdx.y * blockDim.y + threadIdx.y;
+    #else
+    // faster when coords is a regular grid
+    // reduces number of threads writing to the same address at a time in atomicAdd
+    int wi = threadIdx.x * ((w+blockDim.x-1) / blockDim.x) + blockIdx.x;
+    int hi = threadIdx.y * ((h+blockDim.y-1) / blockDim.y) + blockIdx.y;
+    #endif
 
-    // decode indices
-    int tmp = idx;
-    int wi = tmp % w; tmp /= w;
-    int hi = tmp % h; tmp /= h;
-    int mi = tmp % m; tmp /= m;
-    int ni = tmp;
+    int idx = blockIdx.z * blockDim.z + threadIdx.z;
+    bool inside = (wi < w && hi < h && idx < (N*m));
+    if (!inside) return;
+    int mi = idx % m;
+    int ni = idx / m;
 
     // grid coords
     int g_off = (((ni*m + mi)*h + hi)*w + wi);
