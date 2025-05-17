@@ -1,9 +1,8 @@
 #include "config.h"
 
 
-__global__ void bilagrid_sample_forward_kernel(
+__global__ void bilagrid_uniform_sample_forward_kernel(
     const float* __restrict__ bilagrid, // [N,12,L,H,W]
-    const float* __restrict__ coords,  // [N,m,h,w,2]
     const float* __restrict__ rgb,  // [N,m,h,w,3]
     float* __restrict__ output,  // [N,m,h,w,3]
     int N, int L, int H, int W,
@@ -19,15 +18,18 @@ __global__ void bilagrid_sample_forward_kernel(
     int mi = tmp % m; tmp /= m;
     int ni = tmp;
 
-    // load colors
-    int g_offset = (((ni * m + mi) * h + hi) * w + wi);
-    float sr = rgb[3*g_offset+0];
-    float sg = rgb[3*g_offset+1];
-    float sb = rgb[3*g_offset+2];
-
     // read coords
-    float gx = coords[2*g_offset+0];
-    float gy = coords[2*g_offset+1];
+    int g_offset = (((ni * m + mi) * h + hi) * w + wi) * 3;
+
+    // input and output colors
+    float sr = rgb[g_offset+0];
+    float sg = rgb[g_offset+1];
+    float sb = rgb[g_offset+2];
+    float dr = 0.0, dg = 0.0, db = 0.0;
+
+    // grid coords
+    float gx = (float)wi / (float)(w-1);
+    float gy = (float)hi / (float)(h-1);
     float gz = kC2G_r * sr + kC2G_g * sg + kC2G_b * sb;
     float x = gx * (W - 1);
     float y = gy * (H - 1);
@@ -40,10 +42,6 @@ __global__ void bilagrid_sample_forward_kernel(
     int x1 = x0 + 1;
     int y1 = y0 + 1;
     int z1 = z0 + 1;
-    x0 = min(max(x0, 0), W-1);
-    x1 = min(max(x1, 0), W-1);
-    y0 = min(max(y0, 0), H-1);
-    y1 = min(max(y1, 0), H-1);
     z0 = min(max(z0, 0), L-1);
     z1 = min(max(z1, 0), L-1);
 
@@ -51,9 +49,6 @@ __global__ void bilagrid_sample_forward_kernel(
     float fx = x - (float)x0;
     float fy = y - (float)y0;
     float fz = z - (float)z0;
-
-    // output colors
-    float dr = 0.0, dg = 0.0, db = 0.0;
 
     // interpolate and and affine in one loop
     #pragma unroll
@@ -87,15 +82,14 @@ __global__ void bilagrid_sample_forward_kernel(
             (si==0 ? sr : si==1 ? sg : si==2 ? sb : 1.0f);
     }
 
-    output[3*g_offset+0] = dr;
-    output[3*g_offset+1] = dg;
-    output[3*g_offset+2] = db;
+    output[g_offset+0] = dr;
+    output[g_offset+1] = dg;
+    output[g_offset+2] = db;
 }
 
 
-void bilagrid_sample_forward(
+void bilagrid_uniform_sample_forward(
     const float* bilagrid,
-    const float* coords,
     const float* rgb,
     float* output,
     int N, int L, int H, int W,
@@ -104,8 +98,8 @@ void bilagrid_sample_forward(
     int total = N * m * h * w;
     int threads = 256;
     int blocks = (total + threads - 1) / threads;
-    bilagrid_sample_forward_kernel<<<blocks, threads>>>(
-        bilagrid, coords, rgb, output,
+    bilagrid_uniform_sample_forward_kernel<<<blocks, threads>>>(
+        bilagrid, rgb, output,
         N, L, H, W, m, h, w
     );
     // cudaDeviceSynchronize();

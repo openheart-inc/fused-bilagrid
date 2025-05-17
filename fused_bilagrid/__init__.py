@@ -17,7 +17,59 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from fused_bilagrid.sample import fused_bilagrid_sample
+from fused_bilagrid_cuda import (
+    bilagrid_sample_backward,
+    bilagrid_sample_forward,
+    bilagrid_uniform_sample_forward,
+    bilagrid_uniform_sample_backward,
+)
+
+
+class _FusedGridSample(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, bilagrid, coords, rgb, compute_coords_grad=False):
+        output = bilagrid_sample_forward(bilagrid, coords, rgb)
+        ctx.save_for_backward(bilagrid, coords, rgb)
+        ctx.compute_coords_grad = compute_coords_grad
+        return output
+
+    @staticmethod
+    def backward(ctx, v_output):
+        bilagrid, coords, rgb = ctx.saved_tensors
+        return *bilagrid_sample_backward(
+            bilagrid, coords, rgb, v_output,
+            ctx.compute_coords_grad
+        ), None
+
+
+class _FusedUniformGridSample(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, bilagrid, rgb):
+        output = bilagrid_uniform_sample_forward(bilagrid, rgb)
+        ctx.save_for_backward(bilagrid, rgb)
+        return output
+
+    @staticmethod
+    def backward(ctx, v_output):
+        bilagrid, rgb = ctx.saved_tensors
+        return bilagrid_uniform_sample_backward(
+            bilagrid, rgb, v_output,
+        )
+
+
+def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
+    if coords is not None:
+        return _FusedGridSample.apply(
+            bilagrid.contiguous(),
+            coords.contiguous(),
+            rgb.contiguous(),
+            compute_coords_grad
+        )
+    else:
+        return _FusedUniformGridSample.apply(
+            bilagrid.contiguous(),
+            rgb.contiguous(),
+        )
 
 
 def _num_tensor_elems(t):
@@ -43,7 +95,7 @@ def total_variation_loss(x):  # noqa: F811
     return tv / batch_size
 
 
-def slice(bil_grids, xy, rgb, grid_idx):
+def slice(bil_grids, xy, rgb, grid_idx, compute_coords_grad=False):
     """Slices a batch of 3D bilateral grids by pixel coordinates `xy` and gray-scale guidances of pixel colors `rgb`.
 
     Supports 2-D, 3-D, and 4-D input shapes. The first dimension of the input is the batch size
@@ -64,7 +116,7 @@ def slice(bil_grids, xy, rgb, grid_idx):
 
     Args:
         bil_grids (`BilateralGrid`): An instance of $N$ bilateral grids.
-        xy (torch.Tensor): The x-y coordinates of shape $(..., 2)$ in the range of $[0,1]$.
+        xy (Optional[torch.Tensor]): The x-y coordinates of shape $(..., 2)$ in the range of $[0,1]$.
         rgb (torch.Tensor): The RGB values of shape $(..., 3)$ for computing the guidance coordinates, ranging in $[0,1]$.
         grid_idx (torch.Tensor): The indices of bilateral grids for each slicing. Shape: $(..., 1)$.
 
@@ -80,7 +132,8 @@ def slice(bil_grids, xy, rgb, grid_idx):
     if len(grid_idx_unique) == 1:
         # All pixels are from a single view.
         grid_idx = grid_idx_unique  # (1,)
-        xy = xy.unsqueeze(0)  # (1, ..., 2)
+        if xy is not None:
+            xy = xy.unsqueeze(0)  # (1, ..., 2)
         rgb = rgb.unsqueeze(0)  # (1, ..., 3)
     else:
         # Pixels are randomly sampled from different views.
@@ -93,7 +146,7 @@ def slice(bil_grids, xy, rgb, grid_idx):
         else:
             raise ValueError("The input to bilateral grid slicing is not supported yet.")
 
-    rgb = bil_grids(xy, rgb, grid_idx)
+    rgb = bil_grids(xy, rgb, grid_idx, compute_coords_grad)
 
     return {
         "rgb": rgb.reshape(*sh_),
@@ -143,7 +196,7 @@ class BilateralGrid(nn.Module):
         """Computes and returns total variation loss on the bilateral grids."""
         return total_variation_loss(self.grids)
 
-    def forward(self, grid_xy, rgb, idx=None):
+    def forward(self, grid_xy, rgb, idx=None, compute_coords_grad=False):
         """Bilateral grid slicing. Supports 2-D, 3-D, 4-D, and 5-D input.
         For the 2-D, 3-D, and 4-D cases, please refer to `slice`.
         For the 5-D cases, `idx` will be unused and the first dimension of `xy` should be
@@ -151,7 +204,7 @@ class BilateralGrid(nn.Module):
         [`F.bilagrid_sample`](https://pytorch.org/docs/stable/generated/torch.nn.functional.bilagrid_sample.html).
 
         Args:
-            grid_xy (torch.Tensor): The x-y coordinates in the range of $[0,1]$.
+            grid_xy (Optional[torch.Tensor]): The x-y coordinates in the range of $[0,1]$.
             rgb (torch.Tensor): The RGB values in the range of $[0,1]$.
             idx (torch.Tensor): The bilateral grid indices.
 
@@ -160,13 +213,14 @@ class BilateralGrid(nn.Module):
         """
 
         grids = self.grids
-        input_ndims = len(grid_xy.shape)
+        input_ndims = len(rgb.shape)
         assert len(rgb.shape) == input_ndims
 
         if input_ndims > 1 and input_ndims < 5:
             # Convert input into 5D
             for i in range(5 - input_ndims):
-                grid_xy = grid_xy.unsqueeze(1)
+                if grid_xy is not None:
+                    grid_xy = grid_xy.unsqueeze(1)
                 rgb = rgb.unsqueeze(1)
             assert idx is not None
         elif input_ndims != 5:
@@ -175,11 +229,8 @@ class BilateralGrid(nn.Module):
         grids = self.grids
         if idx is not None:
             grids = grids[idx]
-        assert grids.shape[0] == grid_xy.shape[0]
 
-        grid_z = rgb @ self.rgb2gray_weight.T
-        grid_xyz = torch.cat([grid_xy, grid_z], dim=-1)
-        rgb = fused_bilagrid_sample(grids, grid_xyz, rgb)
+        rgb = fused_bilagrid_sample(grids, grid_xy, rgb, compute_coords_grad)
 
         for _ in range(5 - input_ndims):
             rgb = rgb.squeeze(1)
