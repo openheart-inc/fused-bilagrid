@@ -8,10 +8,11 @@ def assert_close(x, y, tol, name: str):
     assert x.shape == y.shape, (x.shape, y.shape)
     err = torch.amax(torch.abs(y - x)).item()
     print(f"{name}: maxerr = {err:.2g}")
-    assert err < tol
+    assert err <= tol
 
 
 def timeit(fun, name: str, repeat=20):
+    torch.cuda.empty_cache()
 
     for i in range(2):
         fun()

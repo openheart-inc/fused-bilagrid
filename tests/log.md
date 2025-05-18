@@ -1,3 +1,58 @@
+May 18 commit:
+
+```md
+**Added total variation loss**
+
+# Test tv_loss
+
+(N, L, H, W) = (3, 5, 7, 15)
+tv_loss: maxerr = 0
+bilagrid.grad: maxerr = 5.8e-11
+
+(N, L, H, W) = (26, 8, 16, 16)
+tv_loss: maxerr = 3.3e-06
+bilagrid.grad: maxerr = 3.6e-12
+
+
+# Profile tv_loss
+
+N = 1
+torch forward: 0.23 ms
+fused forward: 0.01 ms
+torch backward: 0.26 ms
+fused backward: 0.01 ms
+
+N = 50
+torch forward: 0.93 ms
+fused forward: 0.10 ms
+torch backward: 1.19 ms
+fused backward: 0.18 ms
+
+N = 100
+torch forward: 1.62 ms
+fused forward: 0.11 ms
+torch backward: 2.62 ms
+fused backward: 0.27 ms
+
+N = 250
+torch forward: 8.45 ms
+fused forward: 0.23 ms
+torch backward: 11.38 ms
+fused backward: 0.66 ms
+
+N = 600
+torch forward: 27.74 ms
+fused forward: 0.94 ms
+torch backward: 31.12 ms
+fused backward: 1.68 ms
+
+N = 2000
+torch forward: 107.17 ms
+fused forward: 1.44 ms
+torch backward: 119.40 ms
+fused backward: 3.65 ms
+```
+
 May 17 commit:
 
 ```md

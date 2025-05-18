@@ -22,6 +22,8 @@ from fused_bilagrid_cuda import (
     bilagrid_sample_forward,
     bilagrid_uniform_sample_forward,
     bilagrid_uniform_sample_backward,
+    tv_loss_forward,
+    tv_loss_backward,
 )
 
 
@@ -57,6 +59,21 @@ class _FusedUniformGridSample(torch.autograd.Function):
         )
 
 
+class _FusedTotalVariationLoss(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, bilagrid):
+        assert bilagrid.ndim == 5 and bilagrid.shape[1] == 12, bilagrid.shape
+        assert bilagrid.shape[-3] >= 2 and bilagrid.shape[-2] >= 2 and bilagrid.shape[-1] >= 2, bilagrid.shape
+
+        ctx.save_for_backward(bilagrid)
+        return tv_loss_forward(bilagrid)
+
+    @staticmethod
+    def backward(ctx, v_output):
+        (bilagrid,) = ctx.saved_tensors
+        return tv_loss_backward(bilagrid, v_output)
+
+
 def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
     if coords is not None:
         return _FusedGridSample.apply(
@@ -72,27 +89,13 @@ def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
         )
 
 
-def _num_tensor_elems(t):
-    return max(torch.prod(torch.tensor(t.size()[1:]).float()).item(), 1.0)
-
-
-def total_variation_loss(x):  # noqa: F811
+def total_variation_loss(x: torch.Tensor):
     """Returns total variation on multi-dimensional tensors.
 
     Args:
-        x (torch.Tensor): The input tensor with shape $(B, C, ...)$, where $B$ is the batch size and $C$ is the channel size.
+        x (torch.Tensor): The input tensor with shape $(B, 12, L, H, W)$, where $B$ is the batch size.
     """
-    batch_size = x.shape[0]
-    tv = 0
-    for i in range(2, len(x.shape)):
-        n_res = x.shape[i]
-        idx1 = torch.arange(1, n_res, device=x.device)
-        idx2 = torch.arange(0, n_res - 1, device=x.device)
-        x1 = x.index_select(i, idx1)
-        x2 = x.index_select(i, idx2)
-        count = _num_tensor_elems(x1)
-        tv += torch.pow((x1 - x2), 2).sum() / count
-    return tv / batch_size
+    return _FusedTotalVariationLoss.apply(x)
 
 
 def slice(bil_grids, xy, rgb, grid_idx, compute_coords_grad=False):

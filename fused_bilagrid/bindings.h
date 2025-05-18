@@ -44,6 +44,21 @@ void bilagrid_uniform_sample_backward(
 );
 
 
+void tv_loss_forward(
+    const float* input,
+    float* tv_loss,
+    int N, int L, int H, int W
+);
+
+
+void tv_loss_backward(
+    const float* bilagrid,
+    const float v_tv_loss,
+    float* v_bilagrid,
+    int N, int L, int H, int W
+);
+
+
 torch::Tensor bilagrid_sample_forward_tensor(
     torch::Tensor bilagrid, // [N,12,L,H,W]
     torch::Tensor coords,  // [N,m,h,w,2]
@@ -161,3 +176,40 @@ bilagrid_uniform_sample_backward_tensor(
     return std::make_tuple(v_bilagrid, v_rgb);
 }
 
+
+torch::Tensor tv_loss_forward_tensor(
+    torch::Tensor bilagrid  // [N,12,L,H,W]
+) {
+    int N = bilagrid.size(0), L = bilagrid.size(2),
+        H = bilagrid.size(3), W = bilagrid.size(4);
+
+    auto tv_loss = torch::zeros({}, bilagrid.options());
+
+    tv_loss_forward(
+        bilagrid.data_ptr<float>(),
+        tv_loss.data_ptr<float>(),
+        N, L, H, W
+    );
+    
+    return tv_loss;
+}
+
+
+torch::Tensor tv_loss_backward_tensor(
+    torch::Tensor bilagrid,  // [N,12,L,H,W]
+    torch::Tensor v_tv_loss  // scalar
+) {
+    int N = bilagrid.size(0), L = bilagrid.size(2),
+        H = bilagrid.size(3), W = bilagrid.size(4);
+
+    auto v_bilagrid = torch::zeros_like(bilagrid);
+
+    tv_loss_backward(
+        bilagrid.data_ptr<float>(),
+        v_tv_loss.item<float>(),
+        v_bilagrid.data_ptr<float>(),
+        N, L, H, W
+    );
+
+    return v_bilagrid;
+}

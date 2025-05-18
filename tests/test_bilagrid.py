@@ -27,7 +27,7 @@ def test_bilagrid():
     grid_data = torch.randn_like(bilagrid0.grids.data)
     bilagrid0.grids.data = grid_data
     bilagrid1.grids.data = grid_data
-    assert_close(bilagrid1.grids, bilagrid0.grids, 1e-5, "bilagrid")
+    assert_close(bilagrid1.grids, bilagrid0.grids, 0.0, "bilagrid")
 
     ni = len(idx) if idx is not None else N
     uv = 0.5 + 0.5 * torch.randn((ni, h, w, 2)).cuda()
@@ -72,7 +72,7 @@ def test_bilagrid_uniform():
     grid_data = torch.randn_like(bilagrid0.grids.data)
     bilagrid0.grids.data = grid_data
     bilagrid1.grids.data = grid_data
-    assert_close(bilagrid1.grids, bilagrid0.grids, 1e-5, "bilagrid")
+    assert_close(bilagrid1.grids, bilagrid0.grids, 0.0, "bilagrid")
 
     ni = len(idx) if idx is not None else N
 
@@ -112,9 +112,40 @@ def test_bilagrid_uniform():
     timeit(lambda: loss.backward(retain_graph=True), "backward")
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
+def test_tv_loss():
+
+    print("# Test total variation loss")
+
+    N = 25
+    W, H, L = 15, 16, 7
+
+    bilagrid0 = lib_bilagrid.BilateralGrid(N, W, H, L).cuda()
+    bilagrid1 = fused_bilagrid.BilateralGrid(N, W, H, L).cuda()
+
+    torch.random.manual_seed(42)
+    grid_data = torch.randn_like(bilagrid0.grids.data)
+    bilagrid0.grids.data = grid_data
+    bilagrid1.grids.data = grid_data
+    assert_close(bilagrid1.grids, bilagrid0.grids, 0.0, "bilagrid")
+
+    output0 = bilagrid0.tv_loss()
+    output1 = bilagrid1.tv_loss()
+
+    assert_close(output1, output0, 1e-4, "output")
+
+    weight = 1.234
+    (weight*output0).backward()
+    (weight*output1).backward()
+
+    assert_close(bilagrid1.grids.grad, bilagrid0.grids.grad, 1e-6, "bilagrid.grad")
+    print()
+
+
 
 if __name__ == "__main__":
 
     test_bilagrid()
     test_bilagrid_uniform()
+    test_tv_loss()
 
