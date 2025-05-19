@@ -39,8 +39,8 @@ __global__ void bilagrid_uniform_sample_forward_kernel(
     int x0 = (int)floorf(x);
     int y0 = (int)floorf(y);
     int z0 = (int)floorf(z);
-    int x1 = x0 + 1;
-    int y1 = y0 + 1;
+    int x1 = min(x0+1, W-1);
+    int y1 = min(y0+1, H-1);
     int z1 = z0 + 1;
     z0 = min(max(z0, 0), L-1);
     z1 = min(max(z1, 0), L-1);
@@ -54,17 +54,17 @@ __global__ void bilagrid_uniform_sample_forward_kernel(
     #pragma unroll
     for (int ci = 0; ci < 12; ci++) {
         // base pointer for this volume
-        const float* vol = &bilagrid[((ni*12 + ci)*L*H*W)];
+        int base = (ni*12 + ci)*L*H*W;
 
         // fetch 8 corners
-        auto v000 = vol[(z0*H+y0)*W+x0];
-        auto v001 = vol[(z0*H+y0)*W+x1];
-        auto v010 = vol[(z0*H+y1)*W+x0];
-        auto v011 = vol[(z0*H+y1)*W+x1];
-        auto v100 = vol[(z1*H+y0)*W+x0];
-        auto v101 = vol[(z1*H+y0)*W+x1];
-        auto v110 = vol[(z1*H+y1)*W+x0];
-        auto v111 = vol[(z1*H+y1)*W+x1];
+        auto v000 = bilagrid[base+(z0*H+y0)*W+x0];
+        auto v001 = bilagrid[base+(z0*H+y0)*W+x1];
+        auto v010 = bilagrid[base+(z0*H+y1)*W+x0];
+        auto v011 = bilagrid[base+(z0*H+y1)*W+x1];
+        auto v100 = bilagrid[base+(z1*H+y0)*W+x0];
+        auto v101 = bilagrid[base+(z1*H+y0)*W+x1];
+        auto v110 = bilagrid[base+(z1*H+y1)*W+x0];
+        auto v111 = bilagrid[base+(z1*H+y1)*W+x1];
 
         // trilinear interp
         float c00 = v000*(1.0f-fx) + v001*fx;
@@ -82,9 +82,9 @@ __global__ void bilagrid_uniform_sample_forward_kernel(
             (si==0 ? sr : si==1 ? sg : si==2 ? sb : 1.0f);
     }
 
-    output[g_offset+0] = dr;
-    output[g_offset+1] = dg;
-    output[g_offset+2] = db;
+    output[g_offset+0] = isfinite(dr) ? dr : 0.5f;
+    output[g_offset+1] = isfinite(dg) ? dg : 0.5f;
+    output[g_offset+2] = isfinite(db) ? db : 0.5f;
 }
 
 

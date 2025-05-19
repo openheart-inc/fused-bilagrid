@@ -172,8 +172,6 @@ def profile_uniform_bilagrid_sample():
     L, H, W = 8, 16, 16
     h, w = 1080, 1440
 
-    print((5*8)*H < h, (5*8)*W < w)
-
     torch.random.manual_seed(42)
 
     print("# Profile uniform sample")
@@ -203,7 +201,7 @@ def profile_uniform_bilagrid_sample():
 
 if __name__ == "__main__":
 
-    # test_bilagrid_sample()
+    test_bilagrid_sample()
     test_bilagrid_uniform_sample()
     print()
 

@@ -7,7 +7,6 @@ namespace cg = cooperative_groups;
 
 
 __global__ void bilagrid_uniform_sample_backward_v1_kernel_bilagrid(
-    const float* __restrict__ bilagrid,  // [N,12,L,H,W]
     const float* __restrict__ rgb,  // [N,m,h,w,3]
     const float* __restrict__ v_output,  // [N,m,h,w,3]
     float* __restrict__ v_bilagrid,  // [N,12,L,H,W]
@@ -62,10 +61,12 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_bilagrid(
             float x = (float)wi / (float)(w-1) * (float)(W-1);
             float y = (float)hi / (float)(h-1) * (float)(H-1);
             float z = (kC2G_r * sr + kC2G_g * sg + kC2G_b * sb);
-            z = min(max(z, 0.0f), 0.999999f) * (float)(L-1);
+            z = min(max(z, 0.0f), 1.0f) * (float)(L-1);
 
             int x0 = floorf(x), y0 = floorf(y), z0 = floorf(z);
-            int x1 = x0 + 1,    y1 = y0 + 1,    z1 = z0 + 1;
+            int x1 = min(x0+1, W-1);
+            int y1 = min(y0+1, H-1);
+            int z1 = min(z0+1, L-1);
             if (zi != z0 && zi != z1) continue;
 
             float fx = x-x0, fy = y-y0, fz = z-z0;
@@ -112,7 +113,8 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_bilagrid(
         #pragma unroll
         for (int ci = 0; ci < 12; ci++) {
             int out_idx = out_idx_start + ci * out_idx_offset;
-            v_bilagrid[out_idx] = accum[ci];
+            if (isfinite(accum[ci]))
+                v_bilagrid[out_idx] = accum[ci];
         }
         return;
     }
@@ -122,7 +124,8 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_bilagrid(
         #pragma unroll
         for (int ci = 0; ci < 12; ci++) {
             int out_idx = out_idx_start + ci * out_idx_offset;
-            atomicAdd(v_bilagrid + out_idx, accum[ci]);
+            if (isfinite(accum[ci]))
+                atomicAdd(v_bilagrid + out_idx, accum[ci]);
         }
         return;
     }
@@ -138,7 +141,7 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_bilagrid(
     for (int ci = 0; ci < 12; ci++) {
         int out_idx = out_idx_start + ci * out_idx_offset;
 
-        sharedData[tid] = accum[ci];
+        sharedData[tid] = isfinite(accum[ci]) ? accum[ci] : 0.0f;
         __syncthreads();
 
         for (int s = blockSize / 2; s > 0; s >>= 1) {
@@ -187,7 +190,9 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_rgb(
     float y = (float)hi / (float)(h-1) * (float)(H-1);
     float z = (kC2G_r * sr + kC2G_g * sg + kC2G_b * sb) * (L-1);
     int x0 = floorf(x), y0 = floorf(y), z0 = floorf(z);
-    int x1 = x0 + 1, y1 = y0 + 1, z1 = z0 + 1;
+    int x1 = min(x0+1, W-1);
+    int y1 = min(y0+1, H-1);
+    int z1 = z0 + 1;
     z0 = min(max(z0,0), L-1); z1 = min(max(z1,0), L-1);
 
     // fractional parts
@@ -251,9 +256,12 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_rgb(
         }
         gz_grad += dwdz[corner] * (L-1) * trilerp;
     }
-    v_rgb[g_off+0] = vr + kC2G_r * gz_grad;
-    v_rgb[g_off+1] = vg + kC2G_g * gz_grad;
-    v_rgb[g_off+2] = vb + kC2G_b * gz_grad;
+    vr += kC2G_r * gz_grad;
+    vg += kC2G_g * gz_grad;
+    vb += kC2G_b * gz_grad;
+    v_rgb[g_off+0] = isfinite(vr) ? vr : 0.0f;
+    v_rgb[g_off+1] = isfinite(vg) ? vg : 0.0f;
+    v_rgb[g_off+2] = isfinite(vb) ? vb : 0.0f;
 }
 
 
@@ -290,7 +298,7 @@ void bilagrid_uniform_sample_backward_v1(
             (N*L +block.z-1)/block.z
         };
         bilagrid_uniform_sample_backward_v1_kernel_bilagrid<<<bounds, block>>>(
-            bilagrid, rgb, v_output, v_bilagrid,
+            rgb, v_output, v_bilagrid,
             N, L, H, W, m, h, w, mult_x, mult_y
         );
     }

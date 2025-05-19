@@ -25,16 +25,23 @@ __global__ void bilagrid_uniform_sample_backward_v2_kernel(
     int mi = idx % m;
     int ni = idx / m;
 
-    // grid coords
+    // load RGB colors
     int g_off = (((ni*m + mi)*h + hi)*w + wi) * 3;
     float sr = rgb[g_off+0], sg = rgb[g_off+1], sb = rgb[g_off+2];
+    sr = isfinite(sr) ? sr : 0.5f;
+    sg = isfinite(sg) ? sg : 0.5f;
+    sb = isfinite(sb) ? sb : 0.5f;
+
+    // grid coords
     float x = (float)wi / (float)(w-1) * (float)(W-1);
     float y = (float)hi / (float)(h-1) * (float)(H-1);
     float z = (kC2G_r * sr + kC2G_g * sg + kC2G_b * sb) * (L-1);
 
     // floor + ceil, clamped
     int x0 = floorf(x), y0 = floorf(y), z0 = floorf(z);
-    int x1 = x0 + 1, y1 = y0 + 1, z1 = z0 + 1;
+    int x1 = min(x0+1, W-1);
+    int y1 = min(y0+1, H-1);
+    int z1 = z0 + 1;
     z0 = min(max(z0,0), L-1); z1 = min(max(z1,0), L-1);
 
     // fractional parts
@@ -44,6 +51,9 @@ __global__ void bilagrid_uniform_sample_backward_v2_kernel(
     float dr = v_output[g_off+0];
     float dg = v_output[g_off+1];
     float db = v_output[g_off+2];
+    dr = isfinite(dr) ? dr : 0.0f;
+    dg = isfinite(dg) ? dg : 0.0f;
+    db = isfinite(db) ? db : 0.0f;
     float vr = 0.0, vg = 0.0, vb = 0.0;
 
     // spatial derivatives for coords
