@@ -33,7 +33,17 @@ void bilagrid_uniform_sample_forward(
 );
 
 
-void bilagrid_uniform_sample_backward(
+void bilagrid_uniform_sample_backward_v1(
+    const float* bilagrid,
+    const float* rgb,
+    const float* v_output,
+    float* v_bilagrid,
+    float* v_rgb,
+    int N, int L, int H, int W,
+    int m, int h, int w
+);
+
+void bilagrid_uniform_sample_backward_v2(
     const float* bilagrid,
     const float* rgb,
     const float* v_output,
@@ -165,14 +175,29 @@ bilagrid_uniform_sample_backward_tensor(
     auto v_bilagrid = torch::zeros({N,12,L,H,W}, opts);
     auto v_rgb = torch::empty({N,m,h,w,3}, opts);
 
-    bilagrid_uniform_sample_backward(
-        bilagrid.data_ptr<float>(),
-        rgb.data_ptr<float>(),
-        v_output.data_ptr<float>(),
-        v_bilagrid.data_ptr<float>(),
-        v_rgb.data_ptr<float>(),
-        N, L, H, W, m, h, w
-    );
+    // small image: launch from pixels and add to grid
+    if (h*w < (5*8)*(5*8)*H*W) {
+        bilagrid_uniform_sample_backward_v2(
+            bilagrid.data_ptr<float>(),
+            rgb.data_ptr<float>(),
+            v_output.data_ptr<float>(),
+            v_bilagrid.data_ptr<float>(),
+            v_rgb.data_ptr<float>(),
+            N, L, H, W, m, h, w
+        );
+    }
+    // large image: launch from grid and traverse pixels
+    else {
+        bilagrid_uniform_sample_backward_v1(
+            bilagrid.data_ptr<float>(),
+            rgb.data_ptr<float>(),
+            v_output.data_ptr<float>(),
+            v_bilagrid.data_ptr<float>(),
+            v_rgb.data_ptr<float>(),
+            N, L, H, W, m, h, w
+        );
+    }
+
     return std::make_tuple(v_bilagrid, v_rgb);
 }
 

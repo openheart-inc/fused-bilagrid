@@ -1,7 +1,7 @@
 #include "config.h"
 
 
-__global__ void bilagrid_uniform_sample_backward_kernel(
+__global__ void bilagrid_uniform_sample_backward_v2_kernel(
     const float* __restrict__ bilagrid,  // [N,12,L,H,W]
     const float* __restrict__ rgb,  // [N,m,h,w,3]
     const float* __restrict__ v_output,  // [N,m,h,w,3]
@@ -89,7 +89,7 @@ __global__ void bilagrid_uniform_sample_backward_kernel(
 }
 
 
-void bilagrid_uniform_sample_backward(
+void bilagrid_uniform_sample_backward_v2(
     const float* bilagrid,
     const float* rgb,
     const float* v_output,
@@ -104,7 +104,7 @@ void bilagrid_uniform_sample_backward(
         (h +block.y-1)/block.y,
         (N*m +block.z-1)/block.z
     };
-    bilagrid_uniform_sample_backward_kernel<<<bounds, block>>>(
+    bilagrid_uniform_sample_backward_v2_kernel<<<bounds, block>>>(
         bilagrid, rgb, v_output,
         v_bilagrid, v_rgb,
         N, L, H, W, m, h, w

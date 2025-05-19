@@ -33,7 +33,7 @@ def plot_bars(title, timings):
 
     for i, (torch_time, fused_time) in enumerate(zip(torch_times, fused_times)):
         ratio = torch_time / fused_time
-        ax.annotate(f"{ratio:.1f}x", #if ratio < 19.95 else f"{ratio:.2g}x",
+        ax.annotate(f"{ratio:.1f}x" if ratio < 99.95 else f"{ratio:.3g}x",
                     xy=(i+0.5*width, fused_time+0.01*max(torch_times)),
                     ha='center', va='bottom')
 

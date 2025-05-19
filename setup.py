@@ -71,7 +71,7 @@ setup(
                 "fused_bilagrid/sample_forward.cu",
                 "fused_bilagrid/sample_backward.cu",
                 "fused_bilagrid/uniform_sample_forward.cu",
-                # "fused_bilagrid/uniform_sample_backward_v1.cu",
+                "fused_bilagrid/uniform_sample_backward_v1.cu",
                 "fused_bilagrid/uniform_sample_backward_v2.cu",
                 "fused_bilagrid/tv_loss_forward.cu",
                 "fused_bilagrid/tv_loss_backward.cu",

@@ -55,9 +55,9 @@ If `xy` is not provided, the implementation assumes the above `xy`. You can opti
 
 ## Benchmark
 
-Benchmark below is performed on my laptop with an RTX 4070, with default `[16, 16, 8]` grid resolution. See `tests/profile.py` for details.
+Benchmark below is performed on my laptop with an RTX 4070, with default `[16, 16, 8]` grid resolution. `slice` is performed with batch size `1`, common in Gaussian splatting training. See `tests/profile.py` for details.
 
-### `slice` with default `xy`, batch size `1`:
+### `slice` with default `xy`:
 
 ![](tests/assets/Uniform_Sample.png)
 
@@ -65,7 +65,7 @@ Benchmark below is performed on my laptop with an RTX 4070, with default `[16, 1
 
 ![](tests/assets/Total_Variation_Loss.png)
 
-### `slice` with random `xy`, batch size `1`:
+### `slice` with random `xy`:
 
 ![](tests/assets/Irregular_Sample.png)
 

@@ -91,9 +91,9 @@ def test_bilagrid_sample():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
 def test_bilagrid_uniform_sample():
 
-    N, m = 1, 1
-    L, H, W = 4, 8, 8
-    h, w = 45, 59
+    # N, m = 1, 1
+    # L, H, W = 4, 8, 8
+    # h, w = 45, 59
 
     N, m = 3, 2
     L, H, W = 5, 7, 15
@@ -122,6 +122,7 @@ def test_bilagrid_uniform_sample():
 
     print("# Test uniform sample backward")
     v_bilagrid, v_rgb = bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad)
+    # print(v_bilagrid - bilagrid.grad)
     assert_close(v_bilagrid, bilagrid.grad, 1e-8, "bilagrid.grad")
     assert_close(v_rgb, rgb.grad, 1e-8, "rgb.grad")
     print()
@@ -171,6 +172,8 @@ def profile_uniform_bilagrid_sample():
     L, H, W = 8, 16, 16
     h, w = 1080, 1440
 
+    print((5*8)*H < h, (5*8)*W < w)
+
     torch.random.manual_seed(42)
 
     print("# Profile uniform sample")
@@ -200,7 +203,7 @@ def profile_uniform_bilagrid_sample():
 
 if __name__ == "__main__":
 
-    test_bilagrid_sample()
+    # test_bilagrid_sample()
     test_bilagrid_uniform_sample()
     print()
 

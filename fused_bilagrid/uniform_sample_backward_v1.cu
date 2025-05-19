@@ -6,7 +6,7 @@
 namespace cg = cooperative_groups;
 
 
-__global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
+__global__ void bilagrid_uniform_sample_backward_v1_kernel_bilagrid(
     const float* __restrict__ bilagrid,  // [N,12,L,H,W]
     const float* __restrict__ rgb,  // [N,m,h,w,3]
     const float* __restrict__ v_output,  // [N,m,h,w,3]
@@ -18,19 +18,15 @@ __global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
     int x_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int y_idx = blockIdx.y * blockDim.y + threadIdx.y;
     int idx = blockIdx.z * blockDim.z + threadIdx.z;
-    bool inside = (x_idx < W*mult_x && y_idx < H*mult_y && idx < (N*12*L));
-    if (!inside && mult_x*mult_y == 1) return;
     int xi = x_idx / mult_x, xf = x_idx % mult_x;
     int yi = y_idx / mult_y, yf = y_idx % mult_y;
-    int ci = idx % 12; idx /= 12;
+    bool inside = (xi < W && yi < H && idx < (N*L));
+    if (!inside && (
+        mult_x*mult_y == 1 ||
+        (mult_x % blockDim.x != 0 || mult_y % blockDim.y != 0)
+    )) return;
     int zi = idx % L; idx /= L;
     int ni = idx;
-
-    // Channel‐split: si in {0..3}, di in {0..2}
-    int si = ci % 4;  // which rgb coeff
-    int di = ci / 4;  // which output gradient
-
-    float accum = 0.0f;
 
     // Loop bounds
     float sw = float(w-1)/float(W-1);
@@ -49,91 +45,116 @@ __global__ void bilagrid_uniform_sample_backward_kernel_bilagrid(
     int wi1 = min(block_wi0+(xf+1)*x_step, block_wi1);
     int hi1 = min(block_hi0+(yf+1)*y_step, block_hi1);
 
+    // Result for each affine mat channel
+    float accum[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
     // Loop over all samples for this batch
     if (inside)
     for (int mi = 0; mi < m; ++mi) {
         for (int wi = wi0; wi < wi1; wi++)
         for (int hi = hi0; hi < hi1; hi++) {
 
-            // get color
             int g_off = (((ni*m + mi)*h + hi)*w + wi)*3;
             float sr = rgb[g_off+0];
             float sg = rgb[g_off+1];
             float sb = rgb[g_off+2];
 
-            // Flattened sample‐index for coords/rgb/v_output
             float x = (float)wi / (float)(w-1) * (float)(W-1);
             float y = (float)hi / (float)(h-1) * (float)(H-1);
-            float z = (kC2G_r * sr + kC2G_g * sg + kC2G_b * sb) * (L-1);
+            float z = (kC2G_r * sr + kC2G_g * sg + kC2G_b * sb);
+            z = min(max(z, 0.0f), 0.999999f) * (float)(L-1);
 
-            // Compute corners
             int x0 = floorf(x), y0 = floorf(y), z0 = floorf(z);
             int x1 = x0 + 1,    y1 = y0 + 1,    z1 = z0 + 1;
-            z0 = min(max(z0, 0), L-1); z1 = min(max(z1, 0), L-1);
-            // if (z != z0 && z != z1) continue;
+            if (zi != z0 && zi != z1) continue;
 
-            // Fractions
             float fx = x-x0, fy = y-y0, fz = z-z0;
-            float f000 = (1-fx)*(1-fy)*(1-fz);
-            float f001 =    fx*(1-fy)*(1-fz);
-            float f010 = (1-fx)*   fy*(1-fz);
-            float f011 =    fx*   fy*(1-fz);
-            float f100 = (1-fx)*(1-fy)*   fz;
-            float f101 =    fx*(1-fy)*   fz;
-            float f110 = (1-fx)*   fy*   fz;
-            float f111 =    fx*   fy*   fz;
-
-            // Accumulate gradient
-            float accum_weight = (
-                di == 0 ? v_output[g_off+0]
-                : di == 1 ? v_output[g_off+1]
-                : v_output[g_off+2]
-            ) * (si == 0 ? sr : si == 1 ? sg : si == 2 ? sb : 1.0f);
-
             float accum_t = 0.0;
             if (zi == z0) {
-                if (xi == x0 && yi == y0) accum_t += f000;
-                if (xi == x1 && yi == y0) accum_t += f001;
-                if (xi == x0 && yi == y1) accum_t += f010;
-                if (xi == x1 && yi == y1) accum_t += f011;
+                if (xi == x0 && yi == y0) accum_t += (1-fx)*(1-fy)*(1-fz);
+                if (xi == x1 && yi == y0) accum_t += fx*(1-fy)*(1-fz);
+                if (xi == x0 && yi == y1) accum_t += (1-fx)*fy*(1-fz);
+                if (xi == x1 && yi == y1) accum_t += fx*fy*(1-fz);
             }
             if (zi == z1) {
-                if (xi == x0 && yi == y0) accum_t += f100;
-                if (xi == x1 && yi == y0) accum_t += f101;
-                if (xi == x0 && yi == y1) accum_t += f110;
-                if (xi == x1 && yi == y1) accum_t += f111;
+                if (xi == x0 && yi == y0) accum_t += (1-fx)*(1-fy)*fz;
+                if (xi == x1 && yi == y0) accum_t += fx*(1-fy)*fz;
+                if (xi == x0 && yi == y1) accum_t += (1-fx)*fy*fz;
+                if (xi == x1 && yi == y1) accum_t += fx*fy*fz;
             }
-            accum += accum_t * accum_weight;
+
+            float dr = v_output[g_off+0];
+            float dg = v_output[g_off+1];
+            float db = v_output[g_off+2];
+
+            #pragma unroll
+            for (int ci = 0; ci < 12; ci++) {
+                int si = ci % 4;
+                int di = ci / 4;
+
+                float r_coeff = (si==0 ? sr : si==1 ? sg : si==2 ? sb : 1.f);
+                float gout = (di==0 ? dr : di==1 ? dg : db);
+                float grad_weight = r_coeff * gout;
+
+                accum[ci] += accum_t * grad_weight;
+            }
+
         }
     }
 
     // Write result
 
-    __shared__ float accum_array[12];
+    int out_idx_start = ((ni*12*L + zi)*H + yi)*W + xi;
+    int out_idx_offset = L*H*W;
 
-    int out_idx = ((ni*12 + ci)*L + zi)*H*W + yi*W + xi;
+    // simply write in this case
     if (mult_x*mult_y == 1) {
-        v_bilagrid[out_idx] = accum;
+        #pragma unroll
+        for (int ci = 0; ci < 12; ci++) {
+            int out_idx = out_idx_start + ci * out_idx_offset;
+            v_bilagrid[out_idx] = accum[ci];
+        }
+        return;
     }
-    else if (mult_x % blockDim.x == 0 && mult_y % blockDim.y == 0) {
-        if (threadIdx.x == 0 && threadIdx.y == 0)
-            accum_array[threadIdx.z] = 0.0f;
+
+    // out_idx can be different for each thread, fall back to global atomicAdd
+    if (mult_x % blockDim.x != 0 || mult_y % blockDim.y != 0) {
+        #pragma unroll
+        for (int ci = 0; ci < 12; ci++) {
+            int out_idx = out_idx_start + ci * out_idx_offset;
+            atomicAdd(v_bilagrid + out_idx, accum[ci]);
+        }
+        return;
+    }
+
+    // fast atomicAdd
+
+    __shared__ float sharedData[64];
+
+    int blockSize = blockDim.x * blockDim.y * blockDim.z;
+    int tid = (threadIdx.z * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x;
+
+    #pragma unroll
+    for (int ci = 0; ci < 12; ci++) {
+        int out_idx = out_idx_start + ci * out_idx_offset;
+
+        sharedData[tid] = accum[ci];
         __syncthreads();
 
-        if (accum != 0.0f)
-            atomicAdd(accum_array + ci, accum);
-        __syncthreads();
+        for (int s = blockSize / 2; s > 0; s >>= 1) {
+            if (tid < s)
+                sharedData[tid] += sharedData[tid + s];
+            __syncthreads();
+        }
 
-        if (threadIdx.x == 0 && threadIdx.y == 0)
-            atomicAdd(v_bilagrid + out_idx, accum_array[ci]);
+        if (tid == 0)
+            atomicAdd(v_bilagrid + out_idx, sharedData[0]);
     }
-    else {
-        atomicAdd(v_bilagrid + out_idx, accum);
-    }
+
 }
 
 
-__global__ void bilagrid_uniform_sample_backward_kernel_rgb(
+__global__ void bilagrid_uniform_sample_backward_v1_kernel_rgb(
     const float* __restrict__ bilagrid,  // [N,12,L,H,W]
     const float* __restrict__ rgb,  // [N,m,h,w,3]
     const float* __restrict__ v_output,  // [N,m,h,w,3]
@@ -237,7 +258,7 @@ __global__ void bilagrid_uniform_sample_backward_kernel_rgb(
 
 
 
-void bilagrid_uniform_sample_backward(
+void bilagrid_uniform_sample_backward_v1(
     const float* bilagrid,
     const float* rgb,
     const float* v_output,
@@ -248,7 +269,7 @@ void bilagrid_uniform_sample_backward(
 ) {
     // v_bilagrid
     {
-        dim3 block = { 4, 4, 12 };
+        dim3 block = { 8, 8, 1 };
         const int target_tile_size = 5;  // 4 and 6 are both slower for (8,16,16) bilagrid
     
         // int mult_x = max((2*w+W)/(W*target_tile_size), 1);
@@ -266,9 +287,9 @@ void bilagrid_uniform_sample_backward(
         dim3 bounds = {
             (W*mult_x +block.x-1)/block.x,
             (H*mult_y +block.y-1)/block.y,
-            (N*12*L +block.z-1)/block.z
+            (N*L +block.z-1)/block.z
         };
-        bilagrid_uniform_sample_backward_kernel_bilagrid<<<bounds, block>>>(
+        bilagrid_uniform_sample_backward_v1_kernel_bilagrid<<<bounds, block>>>(
             bilagrid, rgb, v_output, v_bilagrid,
             N, L, H, W, m, h, w, mult_x, mult_y
         );
@@ -279,7 +300,7 @@ void bilagrid_uniform_sample_backward(
         int total = N * m * h * w;
         int threads = 256;
         int blocks = (total + threads - 1) / threads;
-        bilagrid_uniform_sample_backward_kernel_rgb<<<blocks, threads>>>(
+        bilagrid_uniform_sample_backward_v1_kernel_rgb<<<blocks, threads>>>(
             bilagrid, rgb, v_output,
             v_rgb,
             N, L, H, W, m, h, w
