@@ -95,7 +95,7 @@ def total_variation_loss(x: torch.Tensor):
     Args:
         x (torch.Tensor): The input tensor with shape $(B, 12, L, H, W)$, where $B$ is the batch size.
     """
-    return _FusedTotalVariationLoss.apply(x)
+    return _FusedTotalVariationLoss.apply(x.contiguous())
 
 
 def slice(bil_grids, xy, rgb, grid_idx, compute_coords_grad=False):

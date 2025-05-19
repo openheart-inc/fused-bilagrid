@@ -26,3 +26,5 @@ def timeit(fun, name: str, repeat=20):
 
     dt = 1e3 * (time1-time0) / repeat
     print(f"{name}: {dt:.2f} ms")
+
+    return dt
