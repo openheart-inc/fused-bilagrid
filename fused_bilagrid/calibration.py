@@ -239,7 +239,7 @@ def _save_params(params: List[Tuple[str, np.ndarray]]):
 
 
 def choose_uniform_sample_backward_args_version(h, w, L, H, W):
-    from _calibration_results import (
+    from fused_bilagrid._calibration_results import (
         BILAGRID_UNIFORM_SAMPLE_BACKWARD_V1_PARAMS,
         BILAGRID_UNIFORM_SAMPLE_BACKWARD_V2_PARAMS
     )
@@ -265,7 +265,7 @@ def choose_uniform_sample_backward_args_version(h, w, L, H, W):
 
 
 def choose_uniform_sample_backward_args_each(h, w, L, H, W):
-    from _calibration_results import BILAGRID_UNIFORM_SAMPLE_BACKWARD_PARAMS
+    from fused_bilagrid._calibration_results import BILAGRID_UNIFORM_SAMPLE_BACKWARD_PARAMS
 
     presets = generate_uniform_sample_backward_v1_args_presets()
     
