@@ -10,35 +10,35 @@ import fused_bilagrid
 
 from collections import OrderedDict
 
+from typing import List, Tuple
 
-def profile_sample():
 
-    print("# Profile sample")
+def profile_sample(grid_size: List[int]):
+
+    print("# Profile sample", grid_size)
     print()
-
-    N, W, H, L = 1, 16, 16, 8
 
     times = OrderedDict()
 
-    for (h, w, repeat) in [
-        (600, 600, 20),
-        (1080, 1440, 10),
-        (3000, 4000, 2)
-    ]:
+    for (h, w) in [
+        (600, 600),
+        (1080, 1440),
+        (3000, 4000)
+    ][::-1]:
         torch.cuda.empty_cache()
         print(f"(h, w) = ({h}, {w})")
 
         idx = torch.tensor([0]).cuda()
 
-        bilagrid0 = lib_bilagrid.BilateralGrid(N, W, H, L).cuda()
-        bilagrid1 = fused_bilagrid.BilateralGrid(N, W, H, L).cuda()
+        bilagrid0 = lib_bilagrid.BilateralGrid(1, *grid_size).cuda()
+        bilagrid1 = fused_bilagrid.BilateralGrid(1, *grid_size).cuda()
 
         torch.random.manual_seed(42)
         grid_data = torch.randn_like(bilagrid0.grids.data)
         bilagrid0.grids.data = grid_data
         bilagrid1.grids.data = grid_data
 
-        ni = len(idx) if idx is not None else N
+        ni = len(idx)
         uv = 0.5 + 0.5 * torch.randn((ni, h, w, 2)).cuda()
         rgb = 0.5 + 0.5 * torch.randn((ni, h, w, 3)).cuda()
         uv0 = torch.nn.Parameter(uv.clone())
@@ -49,11 +49,6 @@ def profile_sample():
         forward0 = lambda: lib_bilagrid.slice(bilagrid0, uv0, rgb0, idx)['rgb']
         forward1 = lambda: fused_bilagrid.slice(bilagrid1, uv1, rgb1, idx, compute_coords_grad=True)['rgb']
 
-        repeat = 10
-
-        dt_fwd_torch = timeit(forward0, "forward torch", repeat)
-        dt_fwd_fused = timeit(forward1, "forward fused", repeat)
-
         output0 = forward0()
         output1 = forward1()
         weights = torch.randn_like(output0)
@@ -63,44 +58,50 @@ def profile_sample():
         backward0 = lambda: loss0.backward(retain_graph=True)
         backward1 = lambda: loss1.backward(retain_graph=True)
 
-        dt_bwd_torch = timeit(backward0, "backward torch", repeat)
-        dt_bwd_fused = timeit(backward1, "backward fused", repeat)
+        repeat = min(10000//w, 10)
+        dt_fwd_torch, dt_fwd_fused, dt_bwd_torch, dt_bwd_fused = timeits([
+            (forward0, "forward torch"),
+            (forward1, "forward fused"),
+            (backward0, "backward torch"),
+            (backward1, "backward fused"),
+        ], repeat)
+        print(f"forward: {dt_fwd_torch/dt_fwd_fused:.1f}x")
+        print(f"backward: {dt_bwd_torch/dt_bwd_fused:.1f}x")
 
         times[f"{w}×{h}"] = [dt_fwd_torch, dt_fwd_fused, dt_bwd_torch, dt_bwd_fused]
 
         print()
 
-    return ("Irregular Sample", times)
+    times = OrderedDict(reversed(times.items()))
+    return (f"Irregular Sample {grid_size}", times)
 
 
-def profile_uniform_sample():
+def profile_uniform_sample(grid_size: List[int]):
 
-    print("# Profile uniform sample")
+    print("# Profile uniform sample", grid_size)
     print()
-
-    N, W, H, L = 1, 16, 16, 8
 
     times = OrderedDict()
 
-    for (h, w, repeat) in [
-        (600, 600, 20),
-        (1080, 1440, 10),
-        (3000, 4000, 2)
-    ]:
+    for (h, w) in [
+        (600, 600),
+        (1080, 1440),
+        (3000, 4000)
+    ][::-1]:
         torch.cuda.empty_cache()
         print(f"(h, w) = ({h}, {w})")
 
         idx = torch.tensor([0]).cuda()
 
-        bilagrid0 = lib_bilagrid.BilateralGrid(N, W, H, L).cuda()
-        bilagrid1 = fused_bilagrid.BilateralGrid(N, W, H, L).cuda()
+        bilagrid0 = lib_bilagrid.BilateralGrid(1, *grid_size).cuda()
+        bilagrid1 = fused_bilagrid.BilateralGrid(1, *grid_size).cuda()
 
         torch.random.manual_seed(42)
         grid_data = torch.randn_like(bilagrid0.grids.data)
         bilagrid0.grids.data = grid_data
         bilagrid1.grids.data = grid_data
 
-        ni = len(idx) if idx is not None else N
+        ni = len(idx)
         rgb = 0.5 + 0.5 * torch.randn((ni, h, w, 3)).cuda()
         rgb0 = torch.nn.Parameter(rgb.clone())
         rgb1 = torch.nn.Parameter(rgb.clone())
@@ -116,11 +117,6 @@ def profile_uniform_sample():
         forward0 = lambda: lib_bilagrid.slice(bilagrid0, get_uv(), rgb0, idx)['rgb']
         forward1 = lambda: fused_bilagrid.slice(bilagrid1, None, rgb1, idx)['rgb']
 
-        repeat = 10
-
-        dt_fwd_torch = timeit(forward0, "forward torch", repeat)
-        dt_fwd_fused = timeit(forward1, "forward fused", repeat)
-
         output0 = forward0()
         output1 = forward1()
         weights = torch.randn_like(output0)
@@ -130,14 +126,22 @@ def profile_uniform_sample():
         backward0 = lambda: loss0.backward(retain_graph=True)
         backward1 = lambda: loss1.backward(retain_graph=True)
 
-        dt_bwd_torch = timeit(backward0, "backward torch", repeat)
-        dt_bwd_fused = timeit(backward1, "backward fused", repeat)
+        repeat = min(10000//w, 10)
+        dt_fwd_torch, dt_fwd_fused, dt_bwd_torch, dt_bwd_fused = timeits([
+            (forward0, "forward torch"),
+            (forward1, "forward fused"),
+            (backward0, "backward torch"),
+            (backward1, "backward fused"),
+        ], repeat)
+        print(f"forward: {dt_fwd_torch/dt_fwd_fused:.1f}x")
+        print(f"backward: {dt_bwd_torch/dt_bwd_fused:.1f}x")
 
         times[f"{w}×{h}"] = [dt_fwd_torch, dt_fwd_fused, dt_bwd_torch, dt_bwd_fused]
 
         print()
 
-    return ("Uniform Sample", times)
+    times = OrderedDict(reversed(times.items()))
+    return (f"Uniform Sample {grid_size}", times)
 
 
 def profile_tv_loss():
@@ -149,7 +153,7 @@ def profile_tv_loss():
 
     times = OrderedDict()
 
-    for N in [250, 600, 2000]:
+    for N in [250, 600, 2000][::-1]:
         torch.cuda.empty_cache()
         print(f"N = {N}")
 
@@ -164,11 +168,6 @@ def profile_tv_loss():
         forward0 = lambda: bilagrid0.tv_loss()
         forward1 = lambda: bilagrid1.tv_loss()
 
-        repeat = min(5000//N, 20)
-
-        dt_fwd_torch = timeit(forward0, "forward torch", repeat)
-        dt_fwd_fused = timeit(forward1, "forward fused", repeat)
-
         output0 = forward0()
         output1 = forward1()
         weights = torch.randn_like(output0)
@@ -178,13 +177,21 @@ def profile_tv_loss():
         backward0 = lambda: loss0.backward(retain_graph=True)
         backward1 = lambda: loss1.backward(retain_graph=True)
 
-        dt_bwd_torch = timeit(backward0, "backward torch", repeat)
-        dt_bwd_fused = timeit(backward1, "backward fused", repeat)
+        repeat = min(5000//N, 10)
+        dt_fwd_torch, dt_fwd_fused, dt_bwd_torch, dt_bwd_fused = timeits([
+            (forward0, "forward torch"),
+            (forward1, "forward fused"),
+            (backward0, "backward torch"),
+            (backward1, "backward fused"),
+        ], repeat)
+        print(f"forward: {dt_fwd_torch/dt_fwd_fused:.1f}x")
+        print(f"backward: {dt_bwd_torch/dt_bwd_fused:.1f}x")
 
         times[f"{N} images"] = [dt_fwd_torch, dt_fwd_fused, dt_bwd_torch, dt_bwd_fused]
 
         print()
 
+    times = OrderedDict(reversed(times.items()))
     return ("Total Variation Loss", times)
 
 
@@ -194,8 +201,10 @@ if __name__ == "__main__":
     results = OrderedDict()
 
     for key, value in [
-        profile_sample(),
-        profile_uniform_sample(),
+        profile_sample([16, 16, 8]),
+        profile_uniform_sample([16, 16, 8]),
+        profile_sample([8, 8, 4]),
+        profile_uniform_sample([8, 8, 4]),
         profile_tv_loss()
     ]:
         results[key] = value

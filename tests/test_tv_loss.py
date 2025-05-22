@@ -77,6 +77,8 @@ def profile_tv_loss():
 
     for N in [1, 50, 100, 250, 600, 2000]:
 
+        repeat = min(10000//N, 20)
+
         torch.random.manual_seed(42+N)
 
         print("N =", N)
@@ -84,8 +86,10 @@ def profile_tv_loss():
         bilagrid = torch.randn((N, 12, L, H, W)).cuda()
         bilagrid = torch.nn.Parameter(bilagrid)
 
-        timeit(lambda: tv_loss_torch(bilagrid), "torch forward", repeat=min(10000//N, 20))
-        timeit(lambda: tv_loss_forward(bilagrid), "fused forward")
+        timeits([
+            (lambda: tv_loss_torch(bilagrid), "torch forward"),
+            (lambda: tv_loss_forward(bilagrid), "fused forward"),
+        ], repeat)
 
         bilagrid = torch.nn.Parameter(bilagrid)
 
@@ -96,8 +100,10 @@ def profile_tv_loss():
         weight = 2.345
         loss = (weight*output).mean()
 
-        timeit(lambda: loss.backward(retain_graph=True), "torch backward", repeat=min(10000//N, 20))
-        timeit(lambda: tv_loss_backward(bilagrid, output.grad), "fused backward")
+        timeits([
+            (lambda: loss.backward(retain_graph=True), "torch backward"),
+            (lambda: tv_loss_backward(bilagrid, output.grad), "fused backward"),
+        ], repeat)
         print()
 
 

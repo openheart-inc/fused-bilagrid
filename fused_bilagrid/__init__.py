@@ -17,20 +17,14 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from fused_bilagrid_cuda import (
-    bilagrid_sample_backward,
-    bilagrid_sample_forward,
-    bilagrid_uniform_sample_forward,
-    bilagrid_uniform_sample_backward,
-    tv_loss_forward,
-    tv_loss_backward,
-)
+import fused_bilagrid_cuda as _C
+from fused_bilagrid.calibration import choose_uniform_sample_backward_args
 
 
 class _FusedGridSample(torch.autograd.Function):
     @staticmethod
     def forward(ctx, bilagrid, coords, rgb, compute_coords_grad=False):
-        output = bilagrid_sample_forward(bilagrid, coords, rgb)
+        output = _C.bilagrid_sample_forward(bilagrid, coords, rgb)
         ctx.save_for_backward(bilagrid, coords, rgb)
         ctx.compute_coords_grad = compute_coords_grad
         return output
@@ -38,7 +32,7 @@ class _FusedGridSample(torch.autograd.Function):
     @staticmethod
     def backward(ctx, v_output):
         bilagrid, coords, rgb = ctx.saved_tensors
-        return *bilagrid_sample_backward(
+        return *_C.bilagrid_sample_backward(
             bilagrid, coords, rgb, v_output,
             ctx.compute_coords_grad
         ), None
@@ -46,17 +40,19 @@ class _FusedGridSample(torch.autograd.Function):
 
 class _FusedUniformGridSample(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, bilagrid, rgb):
-        output = bilagrid_uniform_sample_forward(bilagrid, rgb)
+    def forward(ctx, bilagrid, rgb, _args):
+        output = _C.bilagrid_uniform_sample_forward(bilagrid, rgb)
         ctx.save_for_backward(bilagrid, rgb)
+        ctx._args = _args
         return output
 
     @staticmethod
     def backward(ctx, v_output):
         bilagrid, rgb = ctx.saved_tensors
-        return bilagrid_uniform_sample_backward(
+        return *_C.bilagrid_uniform_sample_backward(
             bilagrid, rgb, v_output,
-        )
+            *ctx._args
+        ), None
 
 
 class _FusedTotalVariationLoss(torch.autograd.Function):
@@ -66,12 +62,12 @@ class _FusedTotalVariationLoss(torch.autograd.Function):
         assert bilagrid.shape[-3] >= 2 and bilagrid.shape[-2] >= 2 and bilagrid.shape[-1] >= 2, bilagrid.shape
 
         ctx.save_for_backward(bilagrid)
-        return tv_loss_forward(bilagrid)
+        return _C.tv_loss_forward(bilagrid)
 
     @staticmethod
     def backward(ctx, v_output):
         (bilagrid,) = ctx.saved_tensors
-        return tv_loss_backward(bilagrid, v_output)
+        return _C.tv_loss_backward(bilagrid, v_output)
 
 
 def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
@@ -83,9 +79,12 @@ def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
             compute_coords_grad
         )
     else:
+        args = choose_uniform_sample_backward_args(*map(int, rgb.shape[-3:-1]), *map(int, bilagrid.shape[-3:]))
+        # args = (1, 8, 8, 5)
         return _FusedUniformGridSample.apply(
             bilagrid.contiguous(),
             rgb.contiguous(),
+            args
         )
 
 
@@ -183,10 +182,6 @@ class BilateralGrid(nn.Module):
         grid = self._init_identity_grid()
         self.grids = nn.Parameter(grid.tile(num, 1, 1, 1, 1))  # (N, 12, L, H, W)
         """ A 5-D tensor of shape $(N, 12, L, H, W)$."""
-
-        # Weights of BT601 RGB-to-gray.
-        self.register_buffer("rgb2gray_weight", torch.Tensor([[0.299, 0.587, 0.114]]))
-        """ A function that converts RGB to gray-scale guidance in $[-1, 1]$."""
 
     def _init_identity_grid(self):
         grid = torch.eye(4)[:3].float()

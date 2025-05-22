@@ -120,9 +120,14 @@ def test_bilagrid_uniform_sample():
     loss = (weights*output).mean()
     loss.backward()
 
-    print("# Test uniform sample backward")
-    v_bilagrid, v_rgb = bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad)
-    # print(v_bilagrid - bilagrid.grad)
+    print("# Test uniform sample backward (v1)")
+    v_bilagrid, v_rgb = bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad, 1, 8, 8, 5)
+    assert_close(v_bilagrid, bilagrid.grad, 1e-8, "bilagrid.grad")
+    assert_close(v_rgb, rgb.grad, 1e-8, "rgb.grad")
+    print()
+
+    print("# Test uniform sample backward (v2)")
+    v_bilagrid, v_rgb = bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad, 2, 8, 8, 5)
     assert_close(v_bilagrid, bilagrid.grad, 1e-8, "bilagrid.grad")
     assert_close(v_rgb, rgb.grad, 1e-8, "rgb.grad")
     print()
@@ -144,8 +149,10 @@ def profile_bilagrid_sample():
     coords = torch.randn((N, m, h, w, 2)).cuda()
     rgb = torch.randn((N, m, h, w, 3)).cuda()
 
-    timeit(lambda: bilagrid_sample_torch(bilagrid, coords, rgb), "torch forward")
-    timeit(lambda: bilagrid_sample_forward(bilagrid, coords, rgb), "fused forward")
+    timeits([
+        (lambda: bilagrid_sample_torch(bilagrid, coords, rgb), "torch forward"),
+        (lambda: bilagrid_sample_forward(bilagrid, coords, rgb), "fused forward"),
+    ])
     print()
 
     bilagrid = torch.nn.Parameter(bilagrid)
@@ -159,9 +166,11 @@ def profile_bilagrid_sample():
     weight = torch.randn_like(output)
     loss = (weight*output).mean()
 
-    timeit(lambda: loss.backward(retain_graph=True), "torch backward")
-    timeit(lambda: bilagrid_sample_backward(bilagrid, coords, rgb, output.grad, False), "fused backward")
-    timeit(lambda: bilagrid_sample_backward(bilagrid, coords, rgb, output.grad, True), "fused backward with coords.grad")
+    timeits([
+        (lambda: loss.backward(retain_graph=True), "torch backward"),
+        (lambda: bilagrid_sample_backward(bilagrid, coords, rgb, output.grad, False), "fused backward"),
+        (lambda: bilagrid_sample_backward(bilagrid, coords, rgb, output.grad, True), "fused backward with coords.grad"),
+    ])
     print()
 
 
@@ -170,7 +179,10 @@ def profile_uniform_bilagrid_sample():
 
     N, m = 1, 1
     L, H, W = 8, 16, 16
+    # L, H, W = 4, 8, 8
+    # L, H, W = 3, 6, 6
     h, w = 1080, 1440
+    # h, w = 3000, 4000
 
     torch.random.manual_seed(42)
 
@@ -180,8 +192,10 @@ def profile_uniform_bilagrid_sample():
     bilagrid = torch.randn((N, 12, L, H, W)).cuda()
     rgb = torch.randn((N, m, h, w, 3)).cuda()
 
-    timeit(lambda: bilagrid_sample_torch(bilagrid, None, rgb), "torch forward")
-    timeit(lambda: bilagrid_uniform_sample_forward(bilagrid, rgb), "fused forward")
+    timeits([
+        (lambda: bilagrid_sample_torch(bilagrid, None, rgb), "torch forward"),
+        (lambda: bilagrid_uniform_sample_forward(bilagrid, rgb), "fused forward"),
+    ])
     print()
 
     bilagrid = torch.nn.Parameter(bilagrid)
@@ -194,9 +208,12 @@ def profile_uniform_bilagrid_sample():
     weight = torch.randn_like(output)
     loss = (weight*output).mean()
 
-    timeit(lambda: loss.backward(retain_graph=True), "torch backward")
-    timeit(lambda: bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad), "fused backward")
-    print()
+    timeits([
+        (lambda: loss.backward(retain_graph=True), "torch backward"),
+        (lambda: bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad, 1, 8, 8, 5), "fused backward v1"),
+        # (lambda: bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad, 1, 8, 4, 4), "fused backward v1"),
+        (lambda: bilagrid_uniform_sample_backward(bilagrid, rgb, output.grad, 2, 8, 8, 5), "fused backward v2"),
+    ])
 
 
 if __name__ == "__main__":

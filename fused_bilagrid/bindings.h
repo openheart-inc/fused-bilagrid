@@ -40,7 +40,9 @@ void bilagrid_uniform_sample_backward_v1(
     float* v_bilagrid,
     float* v_rgb,
     int N, int L, int H, int W,
-    int m, int h, int w
+    int m, int h, int w,
+    const int block_x, const int block_y,
+    const int target_tile_size
 );
 
 void bilagrid_uniform_sample_backward_v2(
@@ -165,7 +167,10 @@ std::tuple<torch::Tensor, torch::Tensor>
 bilagrid_uniform_sample_backward_tensor(
     torch::Tensor bilagrid,  // [N,12,L,H,W]
     torch::Tensor rgb,  // [N,m,h,w,3]
-    torch::Tensor v_output  // [N,m,h,w,3]
+    torch::Tensor v_output,  // [N,m,h,w,3]
+    const int version,
+    const int block_x, const int block_y,
+    const int target_tile_size
 ) {
     int N = bilagrid.size(0), L = bilagrid.size(2),
         H = bilagrid.size(3), W = bilagrid.size(4);
@@ -175,20 +180,21 @@ bilagrid_uniform_sample_backward_tensor(
     auto v_bilagrid = torch::zeros({N,12,L,H,W}, opts);
     auto v_rgb = torch::empty({N,m,h,w,3}, opts);
 
-    // small image: launch from pixels and add to grid
-    if (h*w < (5*8)*(5*8)*H*W) {
-        bilagrid_uniform_sample_backward_v2(
+    if (version == 1) {
+        // large image: launch from grid and traverse pixels
+        bilagrid_uniform_sample_backward_v1(
             bilagrid.data_ptr<float>(),
             rgb.data_ptr<float>(),
             v_output.data_ptr<float>(),
             v_bilagrid.data_ptr<float>(),
             v_rgb.data_ptr<float>(),
-            N, L, H, W, m, h, w
+            N, L, H, W, m, h, w,
+            block_x, block_y, target_tile_size
         );
     }
-    // large image: launch from grid and traverse pixels
-    else {
-        bilagrid_uniform_sample_backward_v1(
+    else if (version == 2) {
+        // small image: launch from pixels and add to grid
+        bilagrid_uniform_sample_backward_v2(
             bilagrid.data_ptr<float>(),
             rgb.data_ptr<float>(),
             v_output.data_ptr<float>(),

@@ -52,22 +52,36 @@ tv_loss = total_variation_loss(bil_grids.grids)
 If `xy` is not provided, the implementation assumes the above `xy`. You can optionally provide `xy`, and the function will work for irregular `xy` and is differentiable to all real inputs, but there may be performance drop compared to a default `xy` &ndash; still multiple times faster compared to PyTorch implementation, see benchmark below.
 
 
+### Calibration (optional)
+
+In current implementation, the performance can vary on different GPUs. To get optimal performance for your setup, after installation, pause other programs that may take high GPU/CPU usage and run:
+
+```bash
+python3 fused_bilagrid/calibration.py
+```
+
+The script will profile code across various image and grid resolutions and save results. When running backward for `slice` with default `xy`, it will determine the fastest hyperparameters to use based on saved results.
+
 
 ## Benchmark
 
-Benchmark below is performed on my laptop with an RTX 4070, with default `[16, 16, 8]` grid resolution. `slice` is performed with batch size `1`, common in Gaussian splatting training. See `tests/profile.py` for details.
+Benchmark below is performed on my laptop with an RTX 4070. `slice` is performed with batch size `1`, common in Gaussian splatting training. See `tests/profile.py` for details.
 
-### `slice` with default `xy`:
+### `slice` with default `xy`, [16, 16, 8] grid:
 
-![](tests/assets/Uniform_Sample.png)
+![](tests/assets/Uniform_Sample_[16,_16,_8].png)
+
+### `slice` with default `xy`, [8, 8, 4] grid:
+
+![](tests/assets/Uniform_Sample_[8,_8,_4].png)
 
 ### `total_variation_loss`:
 
 ![](tests/assets/Total_Variation_Loss.png)
 
-### `slice` with random `xy`:
+### `slice` with random `xy`, [16, 16, 8] grid:
 
-![](tests/assets/Irregular_Sample.png)
+![](tests/assets/Irregular_Sample_[16,_16,_8].png)
 
 ### Overall training:
 

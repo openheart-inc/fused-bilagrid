@@ -273,15 +273,14 @@ void bilagrid_uniform_sample_backward_v1(
     float* v_bilagrid,
     float* v_rgb,
     int N, int L, int H, int W,
-    int m, int h, int w
+    int m, int h, int w,
+    const int block_x, const int block_y,
+    const int target_tile_size
 ) {
     // v_bilagrid
     {
-        dim3 block = { 8, 8, 1 };
-        const int target_tile_size = 5;  // 4 and 6 are both slower for (8,16,16) bilagrid
+        dim3 block = { block_x, block_y, 1 };
     
-        // int mult_x = max((2*w+W)/(W*target_tile_size), 1);
-        // int mult_y = max((2*h+H)/(H*target_tile_size), 1);
         int mult_x = (2*w+W)/(block.x*W*target_tile_size);
         int mult_y = (2*h+H)/(block.y*H*target_tile_size);
         if (mult_x * mult_y < 4)

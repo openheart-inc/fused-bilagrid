@@ -106,11 +106,6 @@ def test_bilagrid_uniform():
     assert_close(rgb1.grad, rgb0.grad, 1e-6, "rgb.grad")
     print()
 
-    return
-    output1 = fused_bilagrid.slice(bilagrid1, None, rgb1, idx)['rgb']
-    loss = (weights*output1).mean()
-    timeit(lambda: loss.backward(retain_graph=True), "backward")
-
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
 def test_tv_loss():
