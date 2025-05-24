@@ -33,7 +33,7 @@ class _FusedGridSample(torch.autograd.Function):
     def backward(ctx, v_output):
         bilagrid, coords, rgb = ctx.saved_tensors
         return *_C.bilagrid_sample_backward(
-            bilagrid, coords, rgb, v_output,
+            bilagrid, coords, rgb, v_output.contiguous(),
             ctx.compute_coords_grad
         ), None
 
@@ -50,7 +50,7 @@ class _FusedUniformGridSample(torch.autograd.Function):
     def backward(ctx, v_output):
         bilagrid, rgb = ctx.saved_tensors
         return *_C.bilagrid_uniform_sample_backward(
-            bilagrid, rgb, v_output,
+            bilagrid, rgb, v_output.contiguous(),
             *ctx._args
         ), None
 
@@ -67,23 +67,23 @@ class _FusedTotalVariationLoss(torch.autograd.Function):
     @staticmethod
     def backward(ctx, v_output):
         (bilagrid,) = ctx.saved_tensors
-        return _C.tv_loss_backward(bilagrid, v_output)
+        return _C.tv_loss_backward(bilagrid, v_output.contiguous())
 
 
 def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
     if coords is not None:
         return _FusedGridSample.apply(
-            bilagrid.contiguous(),
-            coords.contiguous(),
-            rgb.contiguous(),
+            bilagrid.float().contiguous(),
+            coords.float().contiguous(),
+            rgb.float().contiguous(),
             compute_coords_grad
         )
     else:
         args = choose_uniform_sample_backward_args(*map(int, rgb.shape[-3:-1]), *map(int, bilagrid.shape[-3:]))
         # args = (1, 8, 8, 5)
         return _FusedUniformGridSample.apply(
-            bilagrid.contiguous(),
-            rgb.contiguous(),
+            bilagrid.float().contiguous(),
+            rgb.float().contiguous(),
             args
         )
 
@@ -94,7 +94,7 @@ def total_variation_loss(x: torch.Tensor):
     Args:
         x (torch.Tensor): The input tensor with shape $(B, 12, L, H, W)$, where $B$ is the batch size.
     """
-    return _FusedTotalVariationLoss.apply(x.contiguous())
+    return _FusedTotalVariationLoss.apply(x.float().contiguous())
 
 
 def slice(bil_grids, xy, rgb, grid_idx, compute_coords_grad=False):
