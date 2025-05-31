@@ -24,7 +24,8 @@ from fused_bilagrid.calibration import choose_uniform_sample_backward_args
 class _FusedGridSample(torch.autograd.Function):
     @staticmethod
     def forward(ctx, bilagrid, coords, rgb, compute_coords_grad=False):
-        output = _C.bilagrid_sample_forward(bilagrid, coords, rgb)
+        with torch.cuda.device(bilagrid.device):
+            output = _C.bilagrid_sample_forward(bilagrid, coords, rgb)
         ctx.save_for_backward(bilagrid, coords, rgb)
         ctx.compute_coords_grad = compute_coords_grad
         return output
@@ -32,16 +33,18 @@ class _FusedGridSample(torch.autograd.Function):
     @staticmethod
     def backward(ctx, v_output):
         bilagrid, coords, rgb = ctx.saved_tensors
-        return *_C.bilagrid_sample_backward(
-            bilagrid, coords, rgb, v_output.contiguous(),
-            ctx.compute_coords_grad
-        ), None
+        with torch.cuda.device(bilagrid.device):
+            return *_C.bilagrid_sample_backward(
+                bilagrid, coords, rgb, v_output.contiguous(),
+                ctx.compute_coords_grad
+            ), None
 
 
 class _FusedUniformGridSample(torch.autograd.Function):
     @staticmethod
     def forward(ctx, bilagrid, rgb, _args):
-        output = _C.bilagrid_uniform_sample_forward(bilagrid, rgb)
+        with torch.cuda.device(bilagrid.device):
+            output = _C.bilagrid_uniform_sample_forward(bilagrid, rgb)
         ctx.save_for_backward(bilagrid, rgb)
         ctx._args = _args
         return output
@@ -49,10 +52,11 @@ class _FusedUniformGridSample(torch.autograd.Function):
     @staticmethod
     def backward(ctx, v_output):
         bilagrid, rgb = ctx.saved_tensors
-        return *_C.bilagrid_uniform_sample_backward(
-            bilagrid, rgb, v_output.contiguous(),
-            *ctx._args
-        ), None
+        with torch.cuda.device(bilagrid.device):
+            return *_C.bilagrid_uniform_sample_backward(
+                bilagrid, rgb, v_output.contiguous(),
+                *ctx._args
+            ), None
 
 
 class _FusedTotalVariationLoss(torch.autograd.Function):
@@ -62,12 +66,14 @@ class _FusedTotalVariationLoss(torch.autograd.Function):
         assert bilagrid.shape[-3] >= 2 and bilagrid.shape[-2] >= 2 and bilagrid.shape[-1] >= 2, bilagrid.shape
 
         ctx.save_for_backward(bilagrid)
-        return _C.tv_loss_forward(bilagrid)
+        with torch.cuda.device(bilagrid.device):
+            return _C.tv_loss_forward(bilagrid)
 
     @staticmethod
     def backward(ctx, v_output):
         (bilagrid,) = ctx.saved_tensors
-        return _C.tv_loss_backward(bilagrid, v_output.contiguous())
+        with torch.cuda.device(bilagrid.device):
+            return _C.tv_loss_backward(bilagrid, v_output.contiguous())
 
 
 def fused_bilagrid_sample(bilagrid, coords, rgb, compute_coords_grad=False):
