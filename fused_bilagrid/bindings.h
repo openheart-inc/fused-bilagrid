@@ -41,7 +41,7 @@ void bilagrid_uniform_sample_backward_v1(
     float* v_rgb,
     int N, int L, int H, int W,
     int m, int h, int w,
-    const int block_x, const int block_y,
+    const unsigned block_x, const unsigned block_y,
     const int target_tile_size
 );
 
@@ -189,7 +189,8 @@ bilagrid_uniform_sample_backward_tensor(
             v_bilagrid.data_ptr<float>(),
             v_rgb.data_ptr<float>(),
             N, L, H, W, m, h, w,
-            block_x, block_y, target_tile_size
+            (unsigned)block_x, (unsigned)block_y,
+            target_tile_size
         );
     }
     else if (version == 2) {

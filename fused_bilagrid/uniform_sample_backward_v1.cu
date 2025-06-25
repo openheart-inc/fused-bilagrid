@@ -237,7 +237,7 @@ __global__ void bilagrid_uniform_sample_backward_v1_kernel_rgb(
     };
 
     // accumulate gradient into coords (chain through bilagrid values and rgb)
-    float gx_grad = 0.f, gy_grad = 0.f, gz_grad = 0.f;
+    float gz_grad = 0.f;
     #pragma unroll
     for (int corner = 0; corner < 8; ++corner) {
         int xi = (corner & 1) ? x1 : x0;
@@ -274,7 +274,7 @@ void bilagrid_uniform_sample_backward_v1(
     float* v_rgb,
     int N, int L, int H, int W,
     int m, int h, int w,
-    const int block_x, const int block_y,
+    const unsigned block_x, const unsigned block_y,
     const int target_tile_size
 ) {
     // v_bilagrid
