@@ -15,14 +15,14 @@ sys.stderr.reconfigure(line_buffering=True)
 
 # Default fallback architectures
 fallback_archs = [
-    "-gencode=arch=compute_75,code=sm_75",
-    "-gencode=arch=compute_80,code=sm_80",
-    "-gencode=arch=compute_89,code=sm_89",
+    "-gencode=arch=compute_86,code=sm_86",
+    "-gencode=arch=compute_90,code=sm_90",
+    "-gencode=arch=compute_120,code=sm_120",
 ]
 
 nvcc_args = [
     "-O3",
-    #"--maxrregcount=32",
+    # "--maxrregcount=32",
     "--use_fast_math",
 ]
 
@@ -33,12 +33,12 @@ if torch.cuda.is_available():
         device = torch.cuda.current_device()
         compute_capability = torch.cuda.get_device_capability(device)
         arch = f"sm_{compute_capability[0]}{compute_capability[1]}"
-        
+
         # Print to multiple outputs
         arch_msg = f"Detected GPU architecture: {arch}"
         print(arch_msg)
         print(arch_msg, file=sys.stderr, flush=True)
-        
+
         nvcc_args.append(f"-arch={arch}")
         detected_arch = arch
     except Exception as e:
@@ -53,13 +53,16 @@ else:
     nvcc_args.extend(fallback_archs)
 
 # Create a custom class that prints the architecture information
+
+
 class CustomBuildExtension(BuildExtension):
     def build_extensions(self):
         arch_info = f"Building with GPU architecture: {detected_arch if detected_arch else 'multiple architectures'}"
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print(arch_info)
-        print("="*50 + "\n")
+        print("=" * 50 + "\n")
         super().build_extensions()
+
 
 setup(
     name="fused_bilagrid",
